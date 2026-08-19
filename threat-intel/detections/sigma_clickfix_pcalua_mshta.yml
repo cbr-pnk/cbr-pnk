@@ -1,0 +1,175 @@
+# Sigma rules for the ClickFix -> pcalua -> PowerShell -> cmd -> mshta chain
+# See ../clickfix-pcalua-mshta.md for the full analysis.
+# Test in audit/report-only mode before alerting; tune the pcalua rule first, it is the noisiest
+# in estates that still run legacy installers.
+
+title: Pcalua.exe Spawning a Script Interpreter
+id: 8f3a1c40-5d21-4b9e-9c77-2b16e0a4d311
+status: experimental
+description: >
+  Detects the Program Compatibility Assistant launcher (pcalua.exe) being used as an indirect
+  execution proxy to start a script interpreter. Legitimate PCA use launches installers and
+  legacy applications, not shells.
+references:
+  - https://lolbas-project.github.io/lolbas/Binaries/Pcalua/
+  - https://attack.mitre.org/techniques/T1202/
+author: cbr-pnk
+date: 2026-08-19
+tags:
+  - attack.defense-evasion
+  - attack.t1202
+  - attack.execution
+  - attack.t1059.001
+  - attack.t1059.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_parent:
+    ParentImage|endswith: '\pcalua.exe'
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+      - '\cmd.exe'
+      - '\mshta.exe'
+      - '\wscript.exe'
+      - '\cscript.exe'
+      - '\rundll32.exe'
+      - '\regsvr32.exe'
+  selection_cmdline:
+    Image|endswith: '\pcalua.exe'
+    CommandLine|contains:
+      - 'powershell'
+      - 'pwsh'
+      - 'cmd'
+      - 'mshta'
+      - 'wscript'
+      - 'cscript'
+      - 'rundll32'
+  condition: selection_parent or selection_cmdline
+falsepositives:
+  - Legacy application compatibility shims that legitimately wrap a batch or script launcher
+level: high
+
+---
+
+title: Caret Obfuscation in Windows Command Shell Command Line
+id: c1d47b92-6ea3-4f18-8a05-9f2d3c7b6e84
+status: experimental
+description: >
+  Detects caret (^) escape obfuscation in a cmd.exe command line. The cmd parser strips carets at
+  runtime, so attackers interleave them through binary names and URLs to defeat literal string
+  matching. Two or more caret-separated single characters is the signature.
+references:
+  - https://attack.mitre.org/techniques/T1027/010/
+author: cbr-pnk
+date: 2026-08-19
+tags:
+  - attack.defense-evasion
+  - attack.t1027.010
+  - attack.t1140
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\cmd.exe'
+  obfuscation_re:
+    CommandLine|re: '\^[A-Za-z0-9]\^[A-Za-z0-9]'
+  obfuscation_known:
+    CommandLine|contains:
+      - 'm^s^h^t^a'
+      - 'h^t^t^p'
+      - 'p^o^w^e^r'
+      - 'c^u^r^l'
+      - 'c^e^r^t^u^t^i^l'
+  condition: selection and (obfuscation_re or obfuscation_known)
+falsepositives:
+  - Batch scripts legitimately escaping pipes, ampersands or redirection characters. Those escape
+    operators, not alphanumerics, so the regex above should not match them.
+level: high
+
+---
+
+title: Mshta.exe Executing Remote Content
+id: 5b8e2f77-3c14-49a6-b0d3-71ea9c48f2ab
+status: stable
+description: >
+  Detects mshta.exe invoked against a remote URL or an inline script protocol handler. Signed
+  Microsoft binary used to retrieve and execute HTA/VBScript/JScript in memory.
+references:
+  - https://lolbas-project.github.io/lolbas/Binaries/Mshta/
+  - https://attack.mitre.org/techniques/T1218/005/
+author: cbr-pnk
+date: 2026-08-19
+tags:
+  - attack.defense-evasion
+  - attack.t1218.005
+  - attack.command-and-control
+  - attack.t1105
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\mshta.exe'
+  remote:
+    CommandLine|contains:
+      - 'http://'
+      - 'https://'
+      - 'ftp://'
+      - '\\\\'
+  inline:
+    CommandLine|contains:
+      - 'javascript:'
+      - 'vbscript:'
+      - 'about:'
+  condition: selection and (remote or inline)
+falsepositives:
+  - Legacy internal line-of-business web applications delivered as HTAs from an intranet host
+level: high
+
+---
+
+title: Suspicious Command Written to Explorer RunMRU (ClickFix)
+id: a2907e15-4b6c-4d80-95f1-6c3ab8d17e29
+status: experimental
+description: >
+  Detects a script interpreter or download command being written to the Run dialog MRU key. The
+  RunMRU value records verbatim whatever was typed or pasted into Win+R, making it the defining
+  forensic artefact of ClickFix-style copy/paste social engineering.
+references:
+  - https://attack.mitre.org/techniques/T1204/004/
+author: cbr-pnk
+date: 2026-08-19
+tags:
+  - attack.execution
+  - attack.t1204.004
+logsource:
+  category: registry_set
+  product: windows
+detection:
+  selection:
+    TargetObject|contains: '\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU\'
+  suspicious:
+    Details|contains:
+      - 'powershell'
+      - 'pwsh'
+      - 'mshta'
+      - 'pcalua'
+      - 'rundll32'
+      - 'regsvr32'
+      - 'certutil'
+      - 'bitsadmin'
+      - 'curl '
+      - 'msiexec'
+      - 'wscript'
+      - 'cscript'
+      - 'FromBase64String'
+      - '^'
+      - 'http'
+  condition: selection and suspicious
+falsepositives:
+  - Administrators and developers legitimately launching powershell or cmd from the Run dialog.
+    Baseline per user; the strong signal is an interpreter plus a URL or obfuscation in one value.
+level: high
