@@ -1,0 +1,4 @@
+# Claude Code — personal/local files stay out of git
+.claude/settings.local.json
+.claude/agent-memory-local/
+CLAUDE.local.md

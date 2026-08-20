@@ -1,0 +1,22 @@
+{
+  "autoMemoryEnabled": true,
+  "permissions": {
+    "allow": [
+      "Bash(git status)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(rm -rf /*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)"
+    ]
+  }
+}
